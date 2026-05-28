@@ -66,4 +66,72 @@ class SocialAuthController extends Controller
             return redirect()->to(env('FRONTEND_URL', 'http://localhost:8100') . '/login?error=' . urlencode($e->getMessage()));
         }
     }
+
+    /**
+     * Verify Google idToken from native mobile app.
+     */
+    public function verifyGoogleToken(\Illuminate\Http\Request $request)
+    {
+        $request->validate([
+            'id_token' => 'required|string',
+        ]);
+
+        try {
+            // Verify token using Google's tokeninfo endpoint (disable SSL verify for local dev environments)
+            $response = \Illuminate\Support\Facades\Http::withoutVerifying()->get('https://oauth2.googleapis.com/tokeninfo', [
+                'id_token' => $request->id_token
+            ]);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid Google token'
+                ], 401);
+            }
+
+            $googleUser = $response->json();
+
+            // Ensure the token has an email and is verified (if Google provides email_verified)
+            if (!isset($googleUser['email'])) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Could not retrieve email from Google'
+                ], 400);
+            }
+
+            // Find existing user or create a new one
+            $user = User::firstOrCreate(
+                [
+                    'email' => $googleUser['email'],
+                ],
+                [
+                    'name' => $googleUser['name'] ?? explode('@', $googleUser['email'])[0],
+                    'google_id' => $googleUser['sub'] ?? null,
+                    'password' => Hash::make(Str::random(24)),
+                    'role' => 'student',
+                ]
+            );
+
+            // Update google_id if not set previously
+            if (!$user->google_id && isset($googleUser['sub'])) {
+                $user->update(['google_id' => $googleUser['sub']]);
+            }
+
+            // Generate JWT Token
+            $token = JWTAuth::fromUser($user);
+
+            return response()->json([
+                'status' => 'success',
+                'token' => $token,
+                'user' => $user
+            ]);
+
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Google Token Verify Error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to verify Google token: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }

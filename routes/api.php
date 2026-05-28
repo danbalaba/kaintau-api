@@ -18,6 +18,7 @@ Route::prefix('v1')->group(function () {
     // Social Login
     Route::get('auth/google', [\App\Http\Controllers\Api\SocialAuthController::class, 'redirectToGoogle']);
     Route::get('auth/google/callback', [\App\Http\Controllers\Api\SocialAuthController::class, 'handleGoogleCallback']);
+    Route::post('auth/google/token', [\App\Http\Controllers\Api\SocialAuthController::class, 'verifyGoogleToken']);
     
     // Menu Discovery
     Route::get('categories', [MenuController::class, 'categories']);

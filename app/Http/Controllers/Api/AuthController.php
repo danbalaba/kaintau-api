@@ -277,7 +277,7 @@ class AuthController extends Controller
     public function uploadAvatar(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:10240',
         ]);
 
         if ($validator->fails()) {
@@ -290,27 +290,41 @@ class AuthController extends Controller
 
         if ($request->hasFile('avatar')) {
             $file = $request->file('avatar');
-            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
             
-            // Failsafe directory creation under public/uploads/avatars
-            $destinationPath = public_path('uploads/avatars');
-            if (!file_exists($destinationPath)) {
-                mkdir($destinationPath, 0755, true);
+            try {
+                // Initialize Cloudinary with the URL from .env
+                $cloudinary = new \Cloudinary\Cloudinary(env('CLOUDINARY_URL'));
+                
+                // Upload the image to Cloudinary
+                $uploadResult = $cloudinary->uploadApi()->upload($file->getRealPath(), [
+                    'folder' => 'kaintau_avatars',
+                    'transformation' => [
+                        'width' => 400,
+                        'height' => 400,
+                        'crop' => 'fill',
+                        'gravity' => 'face'
+                    ]
+                ]);
+                
+                // Get the secure HTTPS URL from Cloudinary
+                $url = $uploadResult['secure_url'];
+
+                // Update user's database record instantly
+                $user = auth()->user();
+                $user->update(['avatar_url' => $url]);
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Avatar uploaded to Cloudinary successfully',
+                    'url' => $url,
+                    'data' => $user
+                ]);
+            } catch (\Exception $e) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Failed to upload image to Cloudinary: ' . $e->getMessage()
+                ], 500);
             }
-            
-            $file->move($destinationPath, $filename);
-            $url = url('uploads/avatars/' . $filename);
-
-            // Update user's database record instantly
-            $user = auth()->user();
-            $user->update(['avatar_url' => $url]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Avatar uploaded successfully',
-                'url' => $url,
-                'data' => $user
-            ]);
         }
 
         return response()->json([
